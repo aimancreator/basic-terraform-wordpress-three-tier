@@ -1,0 +1,12 @@
+**/.terraform/
+*.tfstate*
+*.tfplan
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+*.backup
+modules.backup/
+*state-backup.json
+iam-separation-backup.json*
+terraform-review.zip
+.DS_Store
