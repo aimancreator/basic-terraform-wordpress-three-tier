@@ -1,15 +1,15 @@
 # WordPress on AWS: three-tier Terraform lab
 
-Start by creating an IAM deployment user with the permissions below. Choose **Method A: AWS CLI on your computer** or **Method B: AWS Console with CloudShell**, then deploy the infrastructure with **one `terraform apply` from this folder**. Terraform finds an official Amazon Linux 2023 image and installs WordPress during startup. No personal AMI or separate image-building deployment is required.
+Start by creating an IAM deployment user with the permissions below. Choose **Method A: Terraform with AWS CLI on your computer** or **Method B: manual AWS Console clicks**. Method A deploys the infrastructure with **one `terraform apply` from this folder**; Method B creates each resource through console forms. Terraform finds an official Amazon Linux 2023 image and installs WordPress during startup. No personal AMI or separate image-building deployment is required.
 
 ## Choose your method
 
 | Method | Where you work | Authentication |
 | --- | --- | --- |
 | **A. AWS CLI on your computer** | Your computer's terminal; install AWS CLI, Git, and Terraform locally. | Access keys stored in a local AWS CLI profile. |
-| **B. AWS Console with CloudShell** | A browser terminal inside AWS Console; install Terraform in CloudShell. | Your console session supplies temporary credentials automatically. |
+| **B. Manual AWS Console (ClickOps)** | AWS Console pages and forms; follow the [console tutorial](docs/console-deployment.md). | IAM user console sign-in; no access keys needed. |
 
-Choose one method for a deployment and keep using its state files. Both methods use Terraform commands; the AWS Console route runs them inside CloudShell. The AWS Console does not have a button to apply `.tf` files directly.
+Choose one method for a deployment. Terraform manages Method A through its state files. Method B is managed manually in the console; Terraform does not track those resources unless you explicitly import them. Use separate environments for the two methods to avoid resource-name conflicts.
 
 ## 1. Create the IAM deployment user
 
@@ -28,14 +28,13 @@ Using an existing AWS administrator account, open **IAM → Users → Create use
    | `IAMFullAccess` | Create, attach policies to, pass, and delete the EC2 role and instance profile. |
    | `SecretsManagerReadWrite` | Support RDS-managed database credentials; includes `kms:DescribeKey` for the default Secrets Manager encryption key. |
 
-4. For **Method B only**, also attach `AWSCloudShellFullAccess`, which lets the user open and use CloudShell. Keep the four deployment policies above as well.
-5. Select **Next**, review the selected policies, and create the user.
+4. Select **Next**, review the four selected policies, and create the user.
 
 No custom policy, JSON editing, or account ID replacement is needed for the deployment user.
 
 These policies grant broad permissions for a learning account. In particular, `IAMFullAccess` allows management of IAM users, roles, and permissions across the account. Use a dedicated lab account and remove the access when finished; production deployments should use narrower permissions.
 
-The EC2 instance receives its own IAM role through Terraform. That role has `AmazonSSMManagedInstanceCore` and access to its specific database secret. Do not put the deployment user's access keys on the instance.
+For Method A, Terraform creates the EC2 instance's own IAM role with `AmazonSSMManagedInstanceCore` and access to its specific database secret. Method B explains how to create an EC2 role through the console using managed policies. Do not put the deployment user's access keys on the instance.
 
 Organization service control policies and permission boundaries can still restrict these grants. This example uses AWS's standard commercial partition and the default Secrets Manager encryption key.
 
@@ -78,41 +77,11 @@ cd basic-terraform-wordpress-three-tier
 
 Continue to step 3. `provider.tf` uses the standard AWS credential chain, so configured temporary role credentials also work. Never put access keys in Terraform files.
 
-### Method B: AWS Console with CloudShell
+### Method B: Manual AWS Console (ClickOps)
 
-Use this method to work entirely in your browser, without installing tools on your computer or creating access keys.
+After creating the console-enabled IAM user in step 1, follow the **[AWS Console tutorial](docs/console-deployment.md)**. It lists the pages to open, buttons to click, and values to enter for the VPC, subnets, routes, NAT gateway, security groups, RDS, IAM role, VPC endpoints, EC2, and ALB. It also includes console verification and deletion steps.
 
-1. Sign in using the IAM user's console sign-in URL, user name `terraform-lab-user`, and initial password from step 1. Complete the required password change. Enable MFA for the user.
-2. Select **US West (N. California) / `us-west-1`** in the console's region selector.
-3. Open **CloudShell** from the console toolbar or search for **CloudShell**. Use its standard environment, which has internet access, and select **Bash**.
-4. Confirm the signed-in identity:
-
-```bash
-aws sts get-caller-identity
-```
-
-The ARN should identify `terraform-lab-user`. CloudShell already includes AWS CLI and Git and automatically uses your console credentials. Continue with those credentials; no `aws configure`, local profile, or access keys are needed here.
-
-Install Terraform in CloudShell using HashiCorp's official Amazon Linux repository:
-
-```bash
-sudo dnf install -y dnf-plugins-core
-sudo dnf config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
-sudo dnf install -y terraform
-terraform version
-```
-
-Download the project into CloudShell's persistent home directory:
-
-```bash
-cd ~
-git clone https://github.com/aimancreator/basic-terraform-wordpress-three-tier.git
-cd basic-terraform-wordpress-three-tier
-```
-
-Continue to step 3 in the same CloudShell terminal. The default deployment region is still `us-west-1`; changing the console region alone does not override Terraform's region variable.
-
-After deployment, keep a private backup of `terraform.tfstate` using **CloudShell → Actions → Download file**. Run `pwd` in the project directory to find the full path, then append `/terraform.tfstate` in the download dialog. Keep it out of GitHub. Return to the same console identity, CloudShell region, and project directory to manage or destroy this deployment. CloudShell home storage is region-specific and can be removed after prolonged inactivity, so it should not be the only copy of your state.
+The only script you paste goes into EC2's **Advanced details → User data** field to install WordPress automatically. All infrastructure is created through console forms. Continue in that tutorial; steps 3–6 below are for Method A.
 
 ## 3. Choose the deployment region
 
@@ -132,7 +101,7 @@ On startup, the private EC2 instance downloads Apache, PHP, and WordPress throug
 
 ## 4. Deploy from this folder
 
-In your chosen terminal (your computer for Method A, or CloudShell for Method B), use the cloned project folder containing `main.tf` and `provider.tf`:
+In your computer's terminal, use the cloned project folder containing `main.tf` and `provider.tf`:
 
 ```bash
 pwd
@@ -182,11 +151,11 @@ terraform output -raw wordpress_url
 
 Open the returned `http://...` URL and complete the WordPress installation screen. Set the site title, WordPress administrator name, password, and email. The WordPress administrator account is separate from the MySQL `admin` user.
 
-If you see `503`, allow time for startup and check **EC2 → Target Groups → wordpress-target-group → Targets**. If the target stays unhealthy, inspect `/var/log/cloud-init-output.log` on the instance using an administrator with Session Manager access. Check NAT routing, outbound HTTP/HTTPS access, package downloads, Apache/PHP-FPM services, endpoint connectivity, and secret permissions. `/var/log/wordpress-install.log` contains startup diagnostics and `/var/log/wordpress-install-complete` marks successful installation. The deployment policies above, including optional CloudShell access, do not grant interactive Session Manager access.
+If you see `503`, allow time for startup and check **EC2 → Target Groups → wordpress-target-group → Targets**. If the target stays unhealthy, inspect `/var/log/cloud-init-output.log` on the instance using an administrator with Session Manager access. Check NAT routing, outbound HTTP/HTTPS access, package downloads, Apache/PHP-FPM services, endpoint connectivity, and secret permissions. `/var/log/wordpress-install.log` contains startup diagnostics and `/var/log/wordpress-install-complete` marks successful installation. The four deployment policies above do not grant interactive Session Manager access.
 
 ## 6. Destroy the lab
 
-From the same root folder and deployment environment, using the same AWS identity, region, and state (Method A: select `AWS_PROFILE=terraform-lab` again if needed; Method B: return to the original CloudShell region and project folder):
+For Method A, use the same root folder, AWS identity, region, and state. Select `AWS_PROFILE=terraform-lab` again if needed:
 
 ```bash
 terraform destroy
@@ -217,7 +186,4 @@ Commit the Terraform source, shell scripts, this README, `.gitignore`, and `.ter
 - [Official Amazon Linux AMI lookup with Terraform](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/ami)
 - [NAT gateways](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html)
 - [WordPress on Amazon Linux 2023](https://docs.aws.amazon.com/linux/al2023/ug/hosting-wordpress-aml-2023.html)
-- [Getting started with AWS CloudShell](https://docs.aws.amazon.com/cloudshell/latest/userguide/getting-started.html)
-- [CloudShell credentials and permissions](https://docs.aws.amazon.com/cloudshell/latest/userguide/sec-auth-with-identities.html)
-- [CloudShell storage and session limits](https://docs.aws.amazon.com/cloudshell/latest/userguide/limits.html)
 - [Install Terraform on Amazon Linux](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli)
